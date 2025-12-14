@@ -1,10 +1,14 @@
 package wiremock
 
+// todo effectively this whole class can be replaced with the client at https://github.com/wiremock/go-wiremock
+// see also https://wiremock.org/docs/solutions/golang/
+
 import (
 	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 )
 
@@ -23,15 +27,15 @@ type RequestPattern struct {
 
 // ResponseDef defines the response to return
 type ResponseDef struct {
-	Status  int               `json:"status"`
-	Body    string            `json:"body,omitempty"`
 	Headers map[string]string `json:"headers,omitempty"`
+	Body    string            `json:"body,omitempty"`
+	Status  int               `json:"status"`
 }
 
 // Client handles interactions with the Wiremock admin API
 type Client struct {
-	AdminURL   string
 	HTTPClient *http.Client
+	AdminURL   string
 }
 
 // NewClient creates a new Wiremock admin client
@@ -63,14 +67,13 @@ func (c *Client) CreateStub(stub StubMapping) error {
 	if err != nil {
 		return fmt.Errorf("failed to create stub: %w", err)
 	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			// Log but don't fail on close error
-		}
-	}()
+	defer closeBody(resp)
 
 	if resp.StatusCode != http.StatusCreated {
-		body, _ := io.ReadAll(resp.Body)
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return fmt.Errorf("unexpected status %d (failed to read response body: %w)", resp.StatusCode, readErr)
+		}
 		return fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -92,14 +95,13 @@ func (c *Client) Reset() error {
 	if err != nil {
 		return fmt.Errorf("failed to reset wiremock: %w", err)
 	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			// Log but don't fail on close error
-		}
-	}()
+	defer closeBody(resp)
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return fmt.Errorf("unexpected status %d (failed to read response body: %w)", resp.StatusCode, readErr)
+		}
 		return fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -121,15 +123,20 @@ func (c *Client) HealthCheck() error {
 	if err != nil {
 		return fmt.Errorf("wiremock health check failed: %w", err)
 	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			// Log but don't fail on close error
-		}
-	}()
+	defer closeBody(resp)
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("wiremock unhealthy, status: %d", resp.StatusCode)
 	}
 
 	return nil
+}
+
+func closeBody(resp *http.Response) {
+	if resp == nil || resp.Body == nil {
+		return
+	}
+	if err := resp.Body.Close(); err != nil {
+		log.Printf("wiremock client: failed to close response body: %v", err)
+	}
 }
