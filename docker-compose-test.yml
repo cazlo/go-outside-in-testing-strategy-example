@@ -1,0 +1,30 @@
+services:
+  app:
+    build:
+      context: .
+      target: prod
+    environment:
+      ADDR: ":8080"
+      EXTERNAL_URL: "http://wiremock:8080/status/204"
+    depends_on:
+      wiremock:
+        condition: service_healthy
+
+  wiremock:
+    image: wiremock/wiremock:3.9.1
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./wiremock/mappings:/home/wiremock/mappings:ro
+    command: [ "--verbose" ]
+
+
+  tests:
+    build:
+      context: .
+      target: devtest
+    environment:
+      BASE_URL: "http://app:8080"
+    depends_on:
+      - app
+    command: ["go", "test", "./test/blackbox", "-count=1", "-v"]
