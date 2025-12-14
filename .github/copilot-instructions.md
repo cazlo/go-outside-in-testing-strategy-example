@@ -8,6 +8,20 @@ testing constraints described below.
 
 ---
 
+## ⚠️ CRITICAL: Always Use the Makefile
+
+**DO NOT run `go test`, `go build`, or `go run` commands directly.**
+
+**ALWAYS use Makefile targets** (e.g., `make test`, `make build`, `make run-with-mocks`).
+
+The Makefile handles environment setup, dependency orchestration, coverage
+instrumentation, and process lifecycle management. Bypassing it will cause
+failures.
+
+See the "Makefile Usage" section below for available targets.
+
+---
+
 ## Core Architectural Intent
 
 - The primary interface is HTTP
@@ -97,6 +111,45 @@ Avoid designs that require:
 
 ---
 
+## Makefile Usage (CRITICAL)
+
+**ALWAYS use the Makefile for running tests and building the project.**
+
+Do NOT run `go test` commands directly. Instead, use the appropriate Make targets:
+
+### Testing Commands
+- **Unit tests**: `make test` or `make test-unit`
+- **Blackbox tests (local)**: `make test-blackbox-local`
+- **Integration tests with coverage**: `make test-integration-with-coverage`
+- **All tests**: `make test-all`
+- **CI test suite**: `make ci-test`
+- **Docker Compose tests**: `make compose-test`
+- **Kubernetes tests**: `make k8s-full-test`
+
+### Development Commands
+- **Build**: `make build`
+- **Run locally**: `make run`
+- **Run with mocks**: `make run-with-mocks`
+- **Start dependencies**: `make deps-up`
+- **Stop dependencies**: `make deps-down`
+
+### Other Useful Targets
+- **Format code**: `make fmt`
+- **Lint**: `make lint`
+- **Clean**: `make clean`
+- **Help**: `make help`
+
+The Makefile handles:
+- Environment setup
+- Dependency orchestration
+- Coverage instrumentation
+- Process management
+- Cleanup
+
+**Never bypass the Makefile** - it contains critical setup and teardown logic.
+
+---
+
 ## When Adding New Features
 
 Agents should:
@@ -104,10 +157,12 @@ Agents should:
 2. Validate behavior via HTTP
 3. Add unit tests only if needed for coverage or complex logic
 4. Preserve test reuse across environments
+5. **Use Makefile targets for all test execution**
 
 Do not introduce:
 - Environment-specific test logic
 - Hidden coupling between tests and internal implementation
+- Direct `go test` invocations (use Makefile instead)
 
 ---
 
@@ -120,3 +175,12 @@ This repository intentionally favors:
 
 All changes should reinforce the **outside-in testing strategy** and avoid
 regressions in test portability, clarity, or runtime parity.
+
+### Critical Rules
+
+1. **NEVER run `go test` directly** - always use `make test`, `make test-blackbox-local`, etc.
+2. **NEVER bypass the Makefile** for building, running, or testing
+3. Tests must validate HTTP behavior, not internal implementation
+4. Parse JSON responses directly, don't import application types into tests
+5. Environment variables, not code, control configuration differences
+

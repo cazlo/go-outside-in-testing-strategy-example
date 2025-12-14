@@ -185,6 +185,7 @@ The Makefile provides targets for:
 - **Development**: `make build`, `make run`, `make local-dev`
 - **Testing**: `make test`, `make test-blackbox-local`, `make test-coverage`
 - **Docker Compose**: `make compose-up`, `make compose-test`, `make deps-up`
+- **Kubernetes**: `make k8s-create-cluster`, `make k8s-deploy`, `make k8s-full-test`
 - **CI-compatible**: `make ci-test`, `make ci-test-integration`, `make ci-full`
 - **Code quality**: `make fmt`, `make vet`, `make lint`
 
@@ -238,6 +239,54 @@ make compose-test
 ```bash
 make ci-full
 ```
+
+**Run tests in a local Kubernetes cluster:**
+```bash
+# Full automated test (creates cluster, builds, deploys, tests)
+make k8s-full-test
+
+# Or step by step:
+make k8s-create-cluster    # Create kind cluster
+make k8s-build-and-load    # Build and load image
+make k8s-deploy            # Deploy to cluster
+kubectl port-forward service/go-outside-in 8080:8080 &  # Port forward
+make k8s-test              # Run tests
+make k8s-delete-cluster    # Clean up
+```
+
+---
+
+## CI/CD Workflows
+
+### Pull Request CI (`.github/workflows/ci.yml`)
+
+The CI workflow runs on every pull request and includes:
+
+1. **Lint**: Runs `golangci-lint` with comprehensive checks
+2. **Test**: Runs unit tests with formatting and vetting
+3. **Integration**: Runs full integration tests in Docker Compose
+4. **Build**: Builds both dev and production Docker images
+5. **K8s Test**: Deploys to a kind cluster and runs blackbox tests
+
+All jobs run in parallel for fast feedback.
+
+### Deployment Workflow (`.github/workflows/deploy.yml`)
+
+The deployment workflow runs on merge to main and:
+
+1. Builds production Docker image with commit SHA tag
+2. **Simulates** pushing to a container registry (echoes commands)
+3. **Simulates** deploying to production Kubernetes (echoes kubectl commands)
+4. **Simulates** waiting for rollout to complete
+5. **Actually** creates a kind cluster and deploys the new version
+6. **Actually** runs integration tests against the deployed version
+7. Shows what rollback would look like on failure
+
+This workflow demonstrates:
+- How to validate deployments with the same tests used in development
+- Progressive deployment verification
+- Rollback procedures
+- The outside-in testing strategy in a production context
 
 ---
 

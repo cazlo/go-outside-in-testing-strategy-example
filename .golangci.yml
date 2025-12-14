@@ -1,0 +1,36 @@
+version: "2"
+run:
+  go: "1.24"
+linters:
+  enable:
+    - bodyclose
+    - gosec
+    - misspell
+    - nilerr
+    - revive
+  settings:
+    errcheck:
+      check-blank: true
+    govet:
+      enable-all: true
+    revive:
+      confidence: 0.8
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
