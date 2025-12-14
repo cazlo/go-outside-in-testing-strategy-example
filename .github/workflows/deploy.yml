@@ -1,0 +1,117 @@
+name: Deploy
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build production Docker image
+        run: |
+          echo "Building production image..."
+          docker build --target prod -t go-outside-in:${{ github.sha }} -t go-outside-in:latest .
+          echo "✓ Image built: go-outside-in:${{ github.sha }}"
+
+      - name: Simulate image push to registry
+        run: |
+          echo "Would execute: docker tag go-outside-in:${{ github.sha }} <registry>/go-outside-in:${{ github.sha }}"
+          echo "Would execute: docker tag go-outside-in:${{ github.sha }} <registry>/go-outside-in:latest"
+          echo "Would execute: docker push <registry>/go-outside-in:${{ github.sha }}"
+          echo "Would execute: docker push <registry>/go-outside-in:latest"
+          echo "✓ Image would be pushed to registry"
+
+      - name: Simulate kubectl apply
+        run: |
+          echo "Would execute: kubectl set image deployment/go-outside-in server=<registry>/go-outside-in:${{ github.sha }} -n production"
+          echo "Or: kubectl apply -f k8s/app.yaml with image tag updated to ${{ github.sha }}"
+          echo "✓ Deployment manifest would be applied"
+
+      - name: Simulate rollout wait
+        run: |
+          echo "Would execute: kubectl rollout status deployment/go-outside-in -n production --timeout=5m"
+          echo "Simulating rollout..."
+          sleep 3
+          echo "Waiting for new pods to be ready..."
+          sleep 3
+          echo "Old pods being terminated..."
+          sleep 2
+          echo "✓ Rollout complete - new version deployed"
+
+      - name: Simulate health check
+        run: |
+          echo "Would execute: kubectl wait --for=condition=ready pod -l app=go-outside-in -n production --timeout=60s"
+          echo "Checking pod health..."
+          sleep 2
+          echo "✓ All pods healthy"
+
+      - name: Create kind cluster for post-deployment testing
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: test-cluster
+          wait: 30s
+
+      - name: Load image into kind for testing
+        run: kind load docker-image go-outside-in:${{ github.sha }} --name test-cluster
+
+      - name: Deploy wiremock to test cluster
+        run: kubectl apply -f k8s/wiremock.yaml
+
+      - name: Wait for wiremock to be ready
+        run: kubectl wait --for=condition=ready pod -l app=wiremock --timeout=60s
+
+      - name: Update app manifest with new image tag
+        run: |
+          sed "s|image: go-outside-in:test|image: go-outside-in:${{ github.sha }}|g" k8s/app.yaml | kubectl apply -f -
+
+      - name: Wait for application rollout
+        run: kubectl rollout status deployment/go-outside-in --timeout=90s
+
+      - name: Wait for application to be ready
+        run: kubectl wait --for=condition=ready pod -l app=go-outside-in --timeout=60s
+
+      - name: Port forward application
+        run: |
+          kubectl port-forward service/go-outside-in 8080:8080 &
+          sleep 5
+
+      - name: Run integration tests against deployed version
+        run: BASE_URL=http://localhost:8080 go test ./test/blackbox -count=1 -v
+
+      - name: Deployment successful
+        run: |
+          echo "================================================"
+          echo "✓ Deployment successful!"
+          echo "✓ Version: ${{ github.sha }}"
+          echo "✓ Integration tests passed"
+          echo "================================================"
+
+      - name: Debug - Show deployment info on failure
+        if: failure()
+        run: |
+          echo "Deployment failed! Gathering debug information..."
+          kubectl get pods
+          kubectl describe pods
+          kubectl logs -l app=go-outside-in --tail=100
+          kubectl logs -l app=wiremock --tail=100
+          echo "================================================"
+          echo "In a real deployment, you would:"
+          echo "  1. Roll back: kubectl rollout undo deployment/go-outside-in -n production"
+          echo "  2. Alert on-call team"
+          echo "  3. Create incident report"
+          echo "================================================"
+

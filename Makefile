@@ -1,3 +1,17 @@
+#SHELL := /bin/bash
+#.ONESHELL:
+#.SHELLFLAGS := -eu -o pipefail -c
+#
+#ASDF_DIR ?= $(HOME)/.asdf
+#
+## Ensure asdf is initialized and shims are on PATH for all recipes
+#export PATH := $(ASDF_DIR)/bin:$(ASDF_DIR)/shims:$(PATH)
+#
+## If you want the asdf function available too (for `asdf ...` commands)
+#define ASDF_INIT
+#. "$(ASDF_DIR)/asdf.sh"
+#endef
+
 .PHONY: help
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -31,7 +45,7 @@ run-with-mocks: deps-up ## Run the server locally with wiremock dependency
 
 .PHONY: test
 test: ## Run unit tests only (use test-integration for full outside-in tests)
-	go test ./internal/... -count=1 -v
+	go test ./internal/... -coverpkg=./internal/... -count=1 -v -cover
 
 .PHONY: test-unit
 test-unit: test ## Alias for test (unit tests only)
@@ -42,7 +56,7 @@ test-blackbox: ## Run blackbox tests against a running server (requires BASE_URL
 
 .PHONY: test-blackbox-local
 test-blackbox-local: ## Run blackbox tests against local server (assumes server running on :8080)
-	BASE_URL=http://localhost:8080 go test ./test/blackbox -count=1 -v
+	BASE_URL=http://localhost:8080 WIREMOCK_URL=http://localhost:8081 go test ./test/blackbox -count=1 -v
 
 .PHONY: test-integration
 test-integration: deps-up ## Run integration tests with dependencies (server must be running separately)
@@ -54,6 +68,7 @@ test-integration: deps-up ## Run integration tests with dependencies (server mus
 build-coverage: ## Build server binary with coverage instrumentation
 	go build -cover -o bin/server-coverage ./cmd/server
 
+# todo below kinda works but still needs help
 .PHONY: test-integration-with-coverage
 test-integration-with-coverage: deps-up build-coverage ## Run integration tests with coverage collection
 	@echo "Starting coverage-instrumented server..."
@@ -81,7 +96,7 @@ test-integration-with-coverage: deps-up build-coverage ## Run integration tests 
 .PHONY: test-coverage
 test-coverage: ## Run unit tests with coverage report
 	@mkdir -p coverage
-	go test ./internal/... -coverprofile=coverage/unit-coverage.out -count=1
+	go test ./internal/... -coverpkg=./internal/... -coverprofile=coverage/unit-coverage.out -count=1
 	go tool cover -html=coverage/unit-coverage.out -o coverage/unit-coverage.html
 	@echo "Unit test coverage report generated: coverage/unit-coverage.html"
 
@@ -126,6 +141,14 @@ docker-build-all: docker-build-dev docker-build-prod ## Build all Docker images
 
 ##@ Code Quality
 
+.PHONY: install-golangci-lint
+install-golangci-lint: ## Install golangci-lint
+	$(ASDF_INIT)
+	@echo "Installing golangci-lint..."
+	@echo $(go env GOPATH)
+	# see https://golangci-lint.run/docs/welcome/install/local/
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s v2.7.2
+
 .PHONY: fmt
 fmt: ## Format Go code
 	go fmt ./...
@@ -135,9 +158,12 @@ vet: ## Run go vet
 	go vet ./...
 
 .PHONY: lint
-lint: ## Run golangci-lint (requires golangci-lint installed)
-	@command -v golangci-lint >/dev/null 2>&1 || { echo >&2 "golangci-lint not installed. Install: https://golangci-lint.run/usage/install/"; exit 1; }
-	golangci-lint run
+lint: ## Run golangci-lint (will install if not found)
+	@if ! command -v golangci-lint >/dev/null 2>&1; then \
+		echo "golangci-lint not found, installing..."; \
+		$(MAKE) install-golangci-lint; \
+	fi
+	./bin/golangci-lint run
 
 ##@ CI-Compatible Workflows
 
@@ -152,6 +178,79 @@ ci-build: docker-build-all ## Build all artifacts (CI-compatible)
 
 .PHONY: ci-full
 ci-full: ci-test ci-test-integration ci-build ## Run complete CI pipeline locally
+
+##@ Kubernetes Workflows
+
+.PHONY: k8s-create-cluster
+k8s-create-cluster: ## Create a local kind cluster for testing
+	@echo "Creating kind cluster..."
+	@kind create cluster --name test-cluster --wait 30s || echo "Cluster may already exist"
+
+.PHONY: k8s-delete-cluster
+k8s-delete-cluster: ## Delete the local kind cluster
+	@echo "Deleting kind cluster..."
+	@kind delete cluster --name test-cluster
+
+.PHONY: k8s-build-and-load
+k8s-build-and-load: ## Build Docker image and load into kind cluster
+	@echo "Building Docker image..."
+	docker build --target prod -t go-outside-in:test .
+	@echo "Loading image into kind cluster..."
+	kind load docker-image go-outside-in:test --name test-cluster
+
+.PHONY: k8s-deploy
+k8s-deploy: ## Deploy application and dependencies to kind cluster
+	@echo "Deploying wiremock..."
+	kubectl apply -f k8s/wiremock.yaml
+	@echo "Waiting for wiremock to be ready..."
+	kubectl wait --for=condition=ready pod -l app=wiremock --timeout=60s
+	@echo "Deploying application..."
+	kubectl apply -f k8s/app.yaml
+	@echo "Waiting for application rollout..."
+	kubectl rollout status deployment/go-outside-in --timeout=90s
+	kubectl wait --for=condition=ready pod -l app=go-outside-in --timeout=60s
+	@echo "Deployment complete!"
+
+.PHONY: k8s-test
+k8s-test: ## Run blackbox tests against kind cluster (requires port-forward in another terminal)
+	@echo "Testing against kind cluster..."
+	@echo "Make sure to run 'kubectl port-forward service/go-outside-in 8080:8080' and 'kubectl port-forward service/wiremock 8081:8080' in another terminal"
+	BASE_URL=http://localhost:8080 WIREMOCK_URL=http://localhost:8081 go test ./test/blackbox -count=1 -v
+
+.PHONY: k8s-full-test
+k8s-full-test: k8s-create-cluster k8s-build-and-load k8s-deploy ## Full K8s test: create cluster, build, deploy
+	@echo "Starting port-forwards in background..."
+	@kubectl port-forward service/go-outside-in 8080:8080 > /dev/null 2>&1 & echo $$! > .k8s-port-forward-app.pid
+	@kubectl port-forward service/wiremock 8081:8080 > /dev/null 2>&1 & echo $$! > .k8s-port-forward-wiremock.pid
+	@sleep 5
+	@echo "Running blackbox tests..."
+	@BASE_URL=http://localhost:8080 WIREMOCK_URL=http://localhost:8081 go test ./test/blackbox -count=1 -v || (kill `cat .k8s-port-forward-app.pid` 2>/dev/null; kill `cat .k8s-port-forward-wiremock.pid` 2>/dev/null; rm -f .k8s-port-forward-*.pid; exit 1)
+	@kill `cat .k8s-port-forward-app.pid` 2>/dev/null || true
+	@kill `cat .k8s-port-forward-wiremock.pid` 2>/dev/null || true
+	@rm -f .k8s-port-forward-*.pid
+	@echo "✓ Kubernetes tests passed!"
+
+.PHONY: k8s-logs
+k8s-logs: ## Show logs from all pods
+	@echo "=== Application logs ==="
+	@kubectl logs -l app=go-outside-in --tail=50
+	@echo ""
+	@echo "=== Wiremock logs ==="
+	@kubectl logs -l app=wiremock --tail=50
+
+.PHONY: k8s-debug
+k8s-debug: ## Show debugging information for Kubernetes deployment
+	@echo "=== Pods ==="
+	@kubectl get pods
+	@echo ""
+	@echo "=== Services ==="
+	@kubectl get services
+	@echo ""
+	@echo "=== Deployments ==="
+	@kubectl get deployments
+	@echo ""
+	@echo "=== Pod descriptions ==="
+	@kubectl describe pods
 
 ##@ Cleanup
 

@@ -2,14 +2,15 @@ package app
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 )
 
 type App struct {
-	ExternalURL string
-	HTTPClient  interface {
+	HTTPClient interface {
 		Do(req *http.Request) (*http.Response, error)
 	}
+	ExternalURL string
 }
 
 func (a *App) HelloHandler(w http.ResponseWriter, r *http.Request) {
@@ -24,7 +25,11 @@ func (a *App) HelloHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			log.Printf("error closing response body: %v", closeErr)
+		}
+	}()
 
 	ua := r.UserAgent()
 	msg := fmt.Sprintf(
@@ -35,5 +40,7 @@ func (a *App) HelloHandler(w http.ResponseWriter, r *http.Request) {
 	)
 
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(msg))
+	if _, err := w.Write([]byte(msg)); err != nil {
+		log.Printf("error writing response: %v", err)
+	}
 }
