@@ -33,6 +33,17 @@ Avoid optimizing for internal testability at the expense of interface clarity.
 
 ---
 
+## Documentation & Patterns
+
+Detailed architectural patterns and strategies are documented in the `docs/` directory.
+Consult these files for deep dives into specific topics:
+- `docs/architecture.md`: Visual diagrams of the testing pyramid and runtime contexts.
+- `docs/testing-strategy.md`: Detailed philosophy on outside-in testing.
+- `docs/database-pattern.md`: How to handle database dependencies (real containers vs mocks).
+- `docs/deployment.md`: Deployment strategies for PRs and production.
+
+---
+
 ## Outside-In Testing Strategy (Required Context)
 
 ### Key Principles
@@ -82,6 +93,16 @@ This is intentional to catch:
 External calls:
 - Must be configurable via environment variables
 - Must be replaceable with mock endpoints (e.g. Wiremock)
+
+---
+
+## Database Strategy
+
+When adding database interactions:
+- **Do NOT use in-memory mocks** (like sqlite or go-sqlmock) for outside-in tests.
+- **Use real database containers** (e.g., Postgres in Docker) managed via `make deps-up`.
+- Tests must manage their own state (e.g., unique IDs or cleanup) to allow parallel execution where possible.
+- Configuration must be via `DATABASE_URL` env vars.
 
 ---
 
@@ -193,4 +214,5 @@ regressions in test portability, clarity, or runtime parity.
 3. Tests must validate HTTP behavior, not internal implementation
 4. Parse JSON responses directly, don't import application types into tests
 5. Environment variables, not code, control configuration differences
+6. **Use real database containers** for tests, not in-memory mocks
 
