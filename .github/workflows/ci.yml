@@ -11,18 +11,17 @@ jobs:
 
     steps:
       - name: Check out code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.24'
 
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
-          version: latest
-          args: --timeout=5m
+          version: 2.7.2
 
   test:
     name: Test
@@ -87,39 +86,9 @@ jobs:
           cluster_name: test-cluster
           wait: 30s
 
-      - name: Build Docker image
-        run: docker build --target prod -t go-outside-in:test .
-
-      - name: Load image into kind
-        run: kind load docker-image go-outside-in:test --name test-cluster
-
-      - name: Deploy wiremock
-        run: kubectl apply -f k8s/wiremock.yaml
-
-      - name: Wait for wiremock to be ready
-        run: kubectl wait --for=condition=ready pod -l app=wiremock --timeout=60s
-
-      - name: Deploy application
-        run: kubectl apply -f k8s/app.yaml
-
-      - name: Wait for application rollout
-        run: kubectl rollout status deployment/go-outside-in --timeout=90s
-
-      - name: Wait for application to be ready
-        run: kubectl wait --for=condition=ready pod -l app=go-outside-in --timeout=60s
-
-      - name: Port forward application
-        run: |
-          kubectl port-forward service/go-outside-in 8080:8080 &
-          sleep 5
-
-      - name: Run blackbox tests against Kubernetes deployment
-        run: BASE_URL=http://localhost:8080 go test ./test/blackbox -count=1 -v
+      - name: Run Kubernetes tests
+        run: make k8s-build-and-load k8s-deploy k8s-test-ci
 
       - name: Debug - Show pods on failure
         if: failure()
-        run: |
-          kubectl get pods
-          kubectl describe pods
-          kubectl logs -l app=go-outside-in --tail=100
-          kubectl logs -l app=wiremock --tail=100
+        run: make k8s-debug k8s-logs
