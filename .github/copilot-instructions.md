@@ -44,6 +44,20 @@ Consult these files for deep dives into specific topics:
 
 ---
 
+## Diagram Accessibility Rules
+
+When creating or updating Mermaid diagrams:
+- **Theme**: Always use `theme: 'dark'` in the initialization directive.
+- **Font Size**: Use a larger than normal font size (e.g., `fontSize: '20px'`).
+- **Node Backgrounds**: Do NOT use white backgrounds for nodes. Use dark grey (`#1F2937`) for default nodes or high-contrast colors.
+- **Text Contrast**:
+    - For dark nodes, use white text (`color:#FFFFFF`) and white strokes.
+    - For light/colored nodes, use black text (`color:#000000`) and black strokes.
+- **Edge Visibility**: Ensure links and edge labels are readable against a dark background (usually handled by `theme: 'dark'`).
+- **Style Syntax**: Do NOT use comma-separated lists for `style` statements (e.g., `style A,B,C fill:#...`). Each node must have its own `style` line.
+
+---
+
 ## Outside-In Testing Strategy (Required Context)
 
 ### Key Principles
