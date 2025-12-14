@@ -5,15 +5,16 @@ This repository prioritizes **outside-in tests**:
 - Dependencies are treated as **black boxes**
 - Tests interact with the service the same way real clients do
 
-The testing pyramid is intentionally inverted compared to many traditional
-Go codebases:
+This strategy aligns with the **Testing Diamond** philosophy (as opposed to the traditional Testing Pyramid).
+We prioritize integration and outside-in tests over granular unit tests to maximize confidence in the system's behavior.
 
-| Layer | Emphasis |
-|-----|---------|
-| Outside-in / black-box tests | **High** |
-| Integration tests | **High** |
-| Unit tests | Moderate / targeted |
-| Internal implementation tests | Low |
+| Layer | Emphasis | Role |
+|-----|---------|---|
+| **Outside-in / Black-box** | **High** | Validates contracts and critical paths (The "Top") |
+| **Integration** | **High** | Validates component interactions (The "Fat Middle") |
+| **Unit** | Targeted | Validates specific algorithms and logic (The "Base") |
+
+By focusing on the "fat middle" of integration and outside-in tests, we ensure that tests act as **living documentation** of the system's behavior, rather than just verifying implementation details.
 
 The goal is to **validate stable interfaces first**, not internal
 implementation details.
@@ -101,3 +102,39 @@ This approach works best when:
 - Service boundaries are well defined
 - Configuration is explicit
 - Teams value contract stability
+
+---
+
+## Extensibility Beyond HTTP
+
+While this repository demonstrates the pattern using an HTTP service, the **outside-in** strategy is equally applicable to:
+- **Queue Workers**: Treat the message broker as the interface. Publish a message and assert on the side effects (DB changes, downstream messages).
+- **gRPC Services**: Use a gRPC client to drive the tests.
+- **Event-Driven Microservices**: Validate the consumption and production of events.
+
+The core principle remains: **Test the interface, not the implementation.**
+
+---
+
+## Mitigating Complexity and Cost
+
+Moving away from unit tests introduces trade-offs, but modern development practices mitigate these risks:
+
+### 1. Setup Complexity vs. Agentic AI
+Writing comprehensive integration tests requires more boilerplate (setup, teardown, seeding).
+- **Mitigation**: **Agentic models** and **Spec-Driven Development** excel here. By maintaining clear agent instructions and specifications, AI assistants can generate and maintain the complex test scaffolding that humans find tedious.
+
+### 2. Execution Time vs. Sharding
+Integration tests run slower than unit tests.
+- **Mitigation**: **Test Sharding**. Distribute tests across multiple parallel workers.
+- **Trade-off**: This lowers wall-clock time (keeping feedback loops fast) but increases total compute costs. This is an acceptable trade-off for the increased confidence and reduced maintenance burden of stable, behavioral tests.
+
+### 3. Feedback Loop Speed vs. Selective Execution
+Running the full suite for every small change can be slow.
+- **Mitigation**: **Selective Test Execution**. In a monorepo or modular design, use dependency analysis tools to run only the tests affected by the changed code.
+- **Mitigation**: **Fail Fast**. Configure CI pipelines to abort immediately upon the first failure, saving resources and alerting developers quicker.
+
+### 4. Flakiness vs. Deterministic Data
+Shared state is the enemy of reliable integration tests.
+- **Mitigation**: **Unique Namespacing**. Ensure every test generates unique identifiers (UUIDs) for its data. Avoid hardcoded IDs (e.g., `ID=1`).
+- **Mitigation**: **Robust Wait Strategies**. Instead of `time.Sleep()`, use polling mechanisms to wait for asynchronous side effects (e.g., "wait until message appears in queue").

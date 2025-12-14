@@ -29,6 +29,24 @@ Instead of mocking the database driver or using an in-memory database (like SQLi
 *   **Confidence**: You are testing the actual SQL queries and driver interactions that will run in production.
 *   **Simplicity**: You don't need to maintain complex mocks of database interfaces.
 
+## Mitigating Database Test Pain
+
+Using real databases introduces overhead. Here is how to mitigate it:
+
+### 1. Schema Management & Pre-seeded Images
+Running migrations for every test run is slow.
+*   **Strategy**: Build a "base" Docker image that already contains the schema (and potentially static reference data).
+*   **Benefit**: Containers start up instantly ready for tests, skipping the migration phase.
+
+### 2. Isolation Strategies
+Tests stepping on each other's data causes flakiness.
+*   **Strategy**: **Unique Data Partitioning**. Use UUIDs for primary keys and ensure every test operates on a disjoint set of data. This allows parallel execution against a single database instance.
+*   **Strategy**: **Ephemeral Schemas**. If the DB supports it (like Postgres schemas), create a temporary schema for each test suite and drop it afterwards.
+
+### 3. Testcontainers vs. Docker Compose
+*   **Docker Compose**: Great for local development (`make deps-up`). It persists state, allowing you to debug the DB after a test run.
+*   **Testcontainers**: Excellent for CI. It spins up a fresh DB for the test suite (or even per test) programmatically and ensures cleanup. It eliminates the "dirty state" problem but adds startup time.
+
 ## Example Workflow
 
 1.  **`make deps-up`**: Starts Postgres in Docker.
