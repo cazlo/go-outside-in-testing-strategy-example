@@ -136,6 +136,7 @@ Do NOT run `go test` commands directly. Instead, use the appropriate Make target
 ### Other Useful Targets
 - **Format code**: `make fmt`
 - **Lint**: `make lint`
+- **Lint autofix**: `make lint-fix`
 - **Clean**: `make clean`
 - **Help**: `make help`
 
@@ -147,6 +148,15 @@ The Makefile handles:
 - Cleanup
 
 **Never bypass the Makefile** - it contains critical setup and teardown logic.
+
+---
+
+## Linting Expectations
+
+- Run `make lint` before sharing code and `make lint-fix` whenever `golangci-lint` can correct style issues automatically.
+- Linting is strict about `errcheck`: always inspect or propagate errors. If dismissal is intentional, log the failure explicitly to satisfy the rule.
+- Avoid "blank" helper functions that swallow errors; even housekeeping work (like closing resources) must log failures so issues surface during debugging.
+- Prefer small helper functions for repeated cleanup logic instead of anonymous defers that hide unchecked errors.
 
 ---
 

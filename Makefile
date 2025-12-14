@@ -19,6 +19,8 @@ help: ## Show this help message
 	@echo 'Available targets:'
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
+GOLANGCI_BIN := ./bin/golangci-lint
+
 ##@ Development
 
 .PHONY: deps
@@ -157,13 +159,20 @@ fmt: ## Format Go code
 vet: ## Run go vet
 	go vet ./...
 
-.PHONY: lint
-lint: ## Run golangci-lint (will install if not found)
-	@if ! command -v golangci-lint >/dev/null 2>&1; then \
+.PHONY: ensure-golangci-lint
+ensure-golangci-lint:
+	@if [ ! -x $(GOLANGCI_BIN) ]; then \
 		echo "golangci-lint not found, installing..."; \
 		$(MAKE) install-golangci-lint; \
 	fi
-	./bin/golangci-lint run
+
+.PHONY: lint
+lint: ensure-golangci-lint ## Run golangci-lint (will install if not found)
+	$(GOLANGCI_BIN) run
+
+.PHONY: lint-fix
+lint-fix: ensure-golangci-lint ## Run golangci-lint with autofix mode
+	$(GOLANGCI_BIN) run --fix
 
 ##@ CI-Compatible Workflows
 
