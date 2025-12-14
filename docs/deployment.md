@@ -25,3 +25,17 @@ Helm charts can help bridge the gap between these environments. By parameterizin
 
 **Trade-off**:
 While Helm reduces configuration drift, it adds complexity. Maintaining a robust Helm chart and testing it across environments requires effort. For simple services, this might be overkill, but for complex systems, the consistency it provides is valuable.
+
+## CI/CD Pipeline Optimizations
+
+Since outside-in tests are heavier, the CI pipeline must be optimized to keep feedback loops reasonable.
+
+### 1. Layer Caching
+Docker builds can be slow.
+*   **Strategy**: Aggressively cache Docker layers (especially dependency installation steps) in the CI system.
+*   **Strategy**: Use multi-stage builds to separate build dependencies from runtime artifacts.
+
+### 2. Smoke Tests & Canary Deployments
+The ultimate "outside-in" test is running against production.
+*   **Smoke Tests**: Run a small subset of critical outside-in tests against the *deployed* environment immediately after deployment. This verifies that configuration (secrets, networking) is correct.
+*   **Canary / Blue-Green**: Deploy the new version alongside the old one. Route a small percentage of traffic to the new version. If error rates spike (detected by metrics), automatically roll back. This reduces the need for 100% perfect pre-production testing environments.
