@@ -200,6 +200,9 @@ k8s-build-and-load: ## Build Docker image and load into kind cluster
 
 .PHONY: k8s-deploy
 k8s-deploy: ## Deploy application and dependencies to kind cluster
+	@echo "Cluster Context"
+	kubectl cluster-info
+	kubectl config current-context
 	@echo "Deploying wiremock..."
 	kubectl apply -f k8s/wiremock.yaml
 	@echo "Waiting for wiremock to be ready..."
@@ -217,18 +220,25 @@ k8s-test: ## Run blackbox tests against kind cluster (requires port-forward in a
 	@echo "Make sure to run 'kubectl port-forward service/go-outside-in 8080:8080' and 'kubectl port-forward service/wiremock 8081:8080' in another terminal"
 	BASE_URL=http://localhost:8080 WIREMOCK_URL=http://localhost:8081 go test ./test/blackbox -count=1 -v
 
-.PHONY: k8s-full-test
-k8s-full-test: k8s-create-cluster k8s-build-and-load k8s-deploy ## Full K8s test: create cluster, build, deploy
-	@echo "Starting port-forwards in background..."
+.PHONY: k8s-test-ci
+k8s-test-ci: ## Run blackbox tests against kind cluster (CI-compatible with auto port-forward)
+	@echo "Starting port-forward in background..."
 	@kubectl port-forward service/go-outside-in 8080:8080 > /dev/null 2>&1 & echo $$! > .k8s-port-forward-app.pid
 	@kubectl port-forward service/wiremock 8081:8080 > /dev/null 2>&1 & echo $$! > .k8s-port-forward-wiremock.pid
 	@sleep 5
 	@echo "Running blackbox tests..."
-	@BASE_URL=http://localhost:8080 WIREMOCK_URL=http://localhost:8081 go test ./test/blackbox -count=1 -v || (kill `cat .k8s-port-forward-app.pid` 2>/dev/null; kill `cat .k8s-port-forward-wiremock.pid` 2>/dev/null; rm -f .k8s-port-forward-*.pid; exit 1)
+	@BASE_URL=http://localhost:8080 go test ./test/blackbox -count=1 -v || (kill `cat .k8s-port-forward-app.pid` 2>/dev/null; rm -f .k8s-port-forward-app.pid; exit 1)
 	@kill `cat .k8s-port-forward-app.pid` 2>/dev/null || true
 	@kill `cat .k8s-port-forward-wiremock.pid` 2>/dev/null || true
-	@rm -f .k8s-port-forward-*.pid
+	@rm -f .k8s-port-forward-app.pid
+	@rm -f .k8s-port-forward-wiremock.pid
 	@echo "✓ Kubernetes tests passed!"
+
+.PHONY: k8s-full-test
+k8s-full-test: k8s-create-cluster k8s-build-and-load k8s-deploy k8s-test-ci ## Full K8s test: create cluster, build, deploy, test (CI-compatible)
+
+.PHONY: k8s-test-with-cluster
+k8s-test-with-cluster: k8s-full-test ## Alias for k8s-full-test
 
 .PHONY: k8s-logs
 k8s-logs: ## Show logs from all pods
