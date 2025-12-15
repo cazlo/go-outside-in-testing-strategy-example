@@ -65,32 +65,19 @@ jobs:
           cluster_name: test-cluster
           wait: 30s
 
-      - name: Load image into kind for testing
-        run: kind load docker-image go-outside-in:${{ github.sha }} --name test-cluster
-
-      - name: Deploy wiremock to test cluster
-        run: kubectl apply -f k8s/wiremock.yaml
-
-      - name: Wait for wiremock to be ready
-        run: kubectl wait --for=condition=ready pod -l app=wiremock --timeout=60s
-
-      - name: Update app manifest with new image tag
+      - name: Load image into kind and deploy
         run: |
-          sed "s|image: go-outside-in:test|image: go-outside-in:${{ github.sha }}|g" k8s/app.yaml | kubectl apply -f -
+          kind load docker-image go-outside-in:${{ github.sha }} --name test-cluster
+          sed "s|image: go-outside-in:test|image: go-outside-in:${{ github.sha }}|g" k8s/app.yaml > k8s/app-deploy.yaml
 
-      - name: Wait for application rollout
-        run: kubectl rollout status deployment/go-outside-in --timeout=90s
-
-      - name: Wait for application to be ready
-        run: kubectl wait --for=condition=ready pod -l app=go-outside-in --timeout=60s
-
-      - name: Port forward application
+      - name: Deploy to kind cluster
         run: |
-          kubectl port-forward service/go-outside-in 8080:8080 &
-          sleep 5
+          make k8s-deploy
+          kubectl set image deployment/go-outside-in server=go-outside-in:${{ github.sha }}
+          kubectl rollout status deployment/go-outside-in --timeout=90s
 
       - name: Run integration tests against deployed version
-        run: BASE_URL=http://localhost:8080 go test ./test/blackbox -count=1 -v
+        run: make k8s-test-ci
 
       - name: Deployment successful
         run: |
