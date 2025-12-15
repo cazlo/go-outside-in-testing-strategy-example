@@ -36,6 +36,42 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build -trimpath -ldflags="-s -w" -o /out/server ./cmd/server
 
 ############################
+# build coverage binary
+############################
+FROM golang:1.24 AS build-coverage
+
+WORKDIR /src
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build -cover -o /out/server-coverage ./cmd/server
+
+############################
+# prod coverage image
+############################
+FROM gcr.io/distroless/static-debian12:nonroot AS prod-coverage
+
+WORKDIR /
+
+COPY --from=build-coverage /out/server-coverage /server
+
+# Environment defaults
+ENV ADDR=:8080
+ENV EXTERNAL_URL=https://httpbin.org/status/204
+ENV GOCOVERDIR=/coverage
+
+EXPOSE 8080
+
+VOLUME /coverage
+
+USER nonroot:nonroot
+ENTRYPOINT ["/server"]
+
+############################
 # prod image (distroless)
 ############################
 FROM gcr.io/distroless/static-debian12:nonroot AS prod

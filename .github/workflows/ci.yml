@@ -39,6 +39,16 @@ jobs:
       - name: Run CI tests
         run: make ci-test
 
+      - name: Generate coverage report
+        run: make test-coverage
+
+      - name: Upload unit test coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-coverage
+          path: coverage/unit-coverage.html
+          retention-days: 30
+
   integration:
     name: Integration Test
     runs-on: ubuntu-latest
@@ -52,6 +62,32 @@ jobs:
 
       - name: Run integration tests
         run: make ci-test-integration
+
+  integration-coverage:
+    name: Integration Test with Coverage
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Run integration tests with coverage
+        run: make test-integration-with-coverage
+
+      - name: Upload integration coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-coverage-report
+          path: coverage/coverage.html
+          retention-days: 30
 
   build:
     name: Build
@@ -88,6 +124,10 @@ jobs:
 
       - name: Run Kubernetes tests
         run: make k8s-build-and-load k8s-deploy k8s-test-ci
+
+      - name: Clean up cluster
+        if: always()
+        run: kind delete cluster --name test-cluster
 
       - name: Debug - Show pods on failure
         if: failure()
