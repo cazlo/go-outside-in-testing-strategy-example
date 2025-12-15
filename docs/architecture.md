@@ -78,31 +78,44 @@ flowchart TB
 flowchart TB
     Base1[golang:1.24] --> DevTest["devtest target<br/>(go toolchain + delve)"]
     Base2[golang:1.24] --> Build["build target<br/>(static binary)"]
+    Base3[golang:1.24] --> BuildCov["build-coverage target<br/>(coverage-instrumented binary)"]
     Build --> BinOut[/out/server binary/]
-    Base3[distroless/static] --> Prod["prod target<br/>(distroless)"]
+    BuildCov --> BinCov[/out/server-coverage binary/]
+    Base4[distroless/static] --> Prod["prod target<br/>(distroless)"]
+    Base5[distroless/static] --> ProdCov["prod-coverage target<br/>(distroless + GOCOVERDIR)"]
     BinOut -.->|COPY --from=build| Prod
+    BinCov -.->|COPY --from=build-coverage| ProdCov
     
     DevTest -.->|used in| ComposeTest[docker-compose-test.yml<br/>tests service]
     Prod -.->|used in| ComposeProd[docker-compose.yml<br/>app service]
+    ProdCov -.->|used in| ComposeCov[docker-compose-coverage.yml<br/>coverage-instrumented app]
     Prod -.->|deployed to| K8s[Kubernetes / Production]
     
     classDef default fill:#1F2937,stroke:#FFFFFF,stroke-width:2px,color:#FFFFFF
     
     style DevTest fill:#60A5FA,stroke:#000000,stroke-width:3px,color:#000000,font-weight:bold
     style Build fill:#A78BFA,stroke:#000000,stroke-width:3px,color:#000000,font-weight:bold
+    style BuildCov fill:#A78BFA,stroke:#000000,stroke-width:3px,color:#000000,font-weight:bold
     style Prod fill:#10B981,stroke:#000000,stroke-width:3px,color:#000000,font-weight:bold
+    style ProdCov fill:#F59E0B,stroke:#000000,stroke-width:3px,color:#000000,font-weight:bold
     style Base1 fill:#E5E7EB,stroke:#000000,stroke-width:2px,color:#000000
     style Base2 fill:#E5E7EB,stroke:#000000,stroke-width:2px,color:#000000
     style Base3 fill:#E5E7EB,stroke:#000000,stroke-width:2px,color:#000000
+    style Base4 fill:#E5E7EB,stroke:#000000,stroke-width:2px,color:#000000
+    style Base5 fill:#E5E7EB,stroke:#000000,stroke-width:2px,color:#000000
     style BinOut fill:#E5E7EB,stroke:#000000,stroke-width:2px,color:#000000
+    style BinCov fill:#E5E7EB,stroke:#000000,stroke-width:2px,color:#000000
     style ComposeTest fill:#E5E7EB,stroke:#000000,stroke-width:2px,color:#000000
     style ComposeProd fill:#E5E7EB,stroke:#000000,stroke-width:2px,color:#000000
+    style ComposeCov fill:#E5E7EB,stroke:#000000,stroke-width:2px,color:#000000
     style K8s fill:#E5E7EB,stroke:#000000,stroke-width:2px,color:#000000
 ```
 
 - **devtest target**: Contains Go toolchain and optional debugger (dlv), used for running tests in containers.
 - **build target**: Intermediate stage that compiles a static binary with trimmed paths.
+- **build-coverage target**: Compiles a binary with `-cover` flag for coverage collection during integration tests.
 - **prod target**: Minimal distroless image (~25MB) with only the binary, suitable for production deployment.
+- **prod-coverage target**: Similar to prod but runs the coverage-instrumented binary and exposes `/coverage` volume for data collection.
 - **Separation of concerns**: Test tooling never enters production images, maintaining security and size efficiency.
 
 ## 4) Local development (best debugging workflow)
@@ -127,3 +140,46 @@ flowchart LR
 
 - Dependencies run in Docker, but the service runs locally, enabling step-through debugging.
 - The outside-in tests remain pure HTTP and do not import internal DTOs/models.
+
+## 5) Coverage Collection Strategy
+
+```mermaid
+%%{init: {'theme': 'dark', 'themeVariables': { 'fontSize': '20px', 'fontFamily': 'arial'}}}%%
+flowchart TB
+    subgraph Unit["`Unit Test Coverage`"]
+        UT[go test ./internal/...] -->|generates| UnitCov[coverage/unit-coverage.out]
+        UnitCov -->|go tool cover -html| UnitHTML[coverage/unit-coverage.html]
+    end
+
+    subgraph Integration["`Integration Test Coverage`"]
+        Server[Coverage-Instrumented Server<br/>prod-coverage target] -->|writes to volume| CovDir[/coverage/covcounters.*]
+        Tests[Blackbox Tests] -->|HTTP requests| Server
+        CovDir -->|go tool covdata textfmt| IntCov[coverage/coverage.out]
+        IntCov -->|go tool cover -html| IntHTML[coverage/coverage.html]
+    end
+
+    subgraph CI["`CI Workflow`"]
+        UnitHTML -.->|artifact| GHA1[GitHub Actions Artifact<br/>unit-test-coverage]
+        IntHTML -.->|artifact| GHA2[GitHub Actions Artifact<br/>integration-coverage-report]
+    end
+
+    classDef default fill:#1F2937,stroke:#FFFFFF,stroke-width:2px,color:#FFFFFF
+    
+    style UT fill:#60A5FA,stroke:#000000,stroke-width:2px,color:#000000
+    style UnitCov fill:#E5E7EB,stroke:#000000,stroke-width:2px,color:#000000
+    style UnitHTML fill:#10B981,stroke:#000000,stroke-width:2px,color:#000000
+    style Server fill:#F59E0B,stroke:#000000,stroke-width:3px,color:#000000,font-weight:bold
+    style Tests fill:#60A5FA,stroke:#000000,stroke-width:2px,color:#000000
+    style CovDir fill:#E5E7EB,stroke:#000000,stroke-width:2px,color:#000000
+    style IntCov fill:#E5E7EB,stroke:#000000,stroke-width:2px,color:#000000
+    style IntHTML fill:#10B981,stroke:#000000,stroke-width:2px,color:#000000
+    style GHA1 fill:#A78BFA,stroke:#000000,stroke-width:2px,color:#000000
+    style GHA2 fill:#A78BFA,stroke:#000000,stroke-width:2px,color:#000000
+```
+
+- **Unit coverage** (`make test-coverage`): Traditional Go test coverage for internal packages.
+- **Integration coverage** (`make test-integration-with-coverage`): Uses a coverage-instrumented binary built with `-cover` flag, deployed in Docker Compose with dependencies.
+- **CI artifacts**: Both coverage reports are uploaded to GitHub Actions for download and review.
+- **Separation**: Unit tests cover internal logic; integration tests measure coverage from HTTP interface exercising real request flows.
+- **Volume mounting**: The `prod-coverage` image writes coverage data to `/coverage` which is mounted from the host for post-test analysis.
+

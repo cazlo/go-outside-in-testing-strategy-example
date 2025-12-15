@@ -66,26 +66,17 @@ test-integration: deps-up ## Run integration tests with dependencies (server mus
 	@echo "Run 'make run-with-mocks' in another terminal, then 'make test-blackbox-local'"
 	@echo "Or use 'make test-integration-with-coverage' for automated testing with coverage"
 
-.PHONY: build-coverage
-build-coverage: ## Build server binary with coverage instrumentation
-	go build -cover -o bin/server-coverage ./cmd/server
-
-# todo below kinda works but still needs help
 .PHONY: test-integration-with-coverage
-test-integration-with-coverage: deps-up build-coverage ## Run integration tests with coverage collection
-	@echo "Starting coverage-instrumented server..."
+test-integration-with-coverage: ## Run integration tests with coverage collection in Docker
+	@echo "Running integration tests with coverage in Docker..."
 	@mkdir -p coverage
+	@chmod 777 coverage
 	@rm -rf coverage/cov* 2>/dev/null || true
-	@GOCOVERDIR=coverage EXTERNAL_URL=http://localhost:8081/status/204 ./bin/server-coverage & echo $$! > .server.pid
-	@sleep 2
-	@echo "Running blackbox tests..."
-	@BASE_URL=http://localhost:8080 go test ./test/blackbox -count=1 -v || (kill -SIGTERM `cat .server.pid` 2>/dev/null; sleep 1; rm -f .server.pid; exit 1)
-	@echo "Stopping server gracefully..."
-	@kill -SIGTERM `cat .server.pid` 2>/dev/null || true
-	@wait `cat .server.pid` 2>/dev/null || true
-	@rm -f .server.pid
+	docker compose -f docker-compose-coverage.yml up --build --abort-on-container-exit --exit-code-from tests
+	@echo "Stopping containers..."
+	docker compose -f docker-compose-coverage.yml down
 	@echo "Converting coverage data..."
-	@if [ -f coverage/covcounters.* ]; then \
+	@if ls coverage/covcounters.* 1> /dev/null 2>&1; then \
 		go tool covdata textfmt -i=coverage -o coverage/coverage.out; \
 		go tool cover -html=coverage/coverage.out -o coverage/coverage.html; \
 		echo "Coverage report generated: coverage/coverage.html"; \
